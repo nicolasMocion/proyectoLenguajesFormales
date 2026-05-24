@@ -1,0 +1,160 @@
+import tkinter as tk
+from tkinter import messagebox, filedialog
+import automatas as motor  
+
+# Importamos las librerías para leer archivos (solo para extraer texto)
+try:
+    import docx
+    import PyPDF2
+except ImportError:
+    messagebox.showwarning("Faltan Librerías", "Para leer PDFs y DOCX asegúrate de instalar: pip install PyPDF2 python-docx")
+
+# ==========================================
+# LÓGICA DE LA INTERFAZ Y FORMULARIO
+# ==========================================
+def validar_entrada(nombre_campo, funcion_validadora, widget_entrada, label_resultado):
+    texto = widget_entrada.get().strip() 
+    if texto == "":
+        label_resultado.config(text="El campo está vacío", fg="orange")
+        return
+
+    es_valido = funcion_validadora(texto)
+    
+    if es_valido:
+        label_resultado.config(text="Formato Válido ✓", fg="green")
+    else:
+        label_resultado.config(text="Formato Inválido ✗", fg="red")
+
+# ==========================================
+# LÓGICA DE LECTURA DE ARCHIVOS
+# ==========================================
+def procesar_archivo():
+    # 1. Abrir el explorador de archivos
+    ruta_archivo = filedialog.askopenfilename(
+        title="Selecciona un documento para analizar",
+        filetypes=[
+            ("Todos los soportados", "*.txt *.pdf *.docx"),
+            ("Archivos PDF", "*.pdf"),
+            ("Archivos Word", "*.docx"),
+            ("Archivos de Texto", "*.txt")
+        ]
+    )
+    
+    if not ruta_archivo:
+        return # El usuario canceló la selección
+
+    texto_extraido = ""
+    
+    # 2. Extraer el texto según la extensión del archivo
+    try:
+        if ruta_archivo.endswith(".txt"):
+            with open(ruta_archivo, 'r', encoding='utf-8') as f:
+                texto_extraido = f.read()
+                
+        elif ruta_archivo.endswith(".docx"):
+            doc = docx.Document(ruta_archivo)
+            texto_extraido = "\n".join([parrafo.text for parrafo in doc.paragraphs])
+            
+        elif ruta_archivo.endswith(".pdf"):
+            with open(ruta_archivo, 'rb') as f:
+                lector = PyPDF2.PdfReader(f)
+                for pagina in lector.pages:
+                    texto_pagina = pagina.extract_text()
+                    if texto_pagina:
+                        texto_extraido += texto_pagina + "\n"
+                        
+    except Exception as e:
+        messagebox.showerror("Error de Lectura", f"No se pudo leer el archivo.\nDetalle: {e}")
+        return
+
+    if not texto_extraido.strip():
+        messagebox.showwarning("Archivo Vacío", "El archivo seleccionado no contiene texto legible.")
+        return
+
+    # 3. Pasar el texto extraído a tus autómatas
+    resultados = motor.buscar_patrones_en_texto(texto_extraido)
+    
+    # 4. Mostrar los resultados
+    mostrar_resultados_escaner(resultados, ruta_archivo.split("/")[-1])
+
+def mostrar_resultados_escaner(resultados, nombre_archivo):
+    # Creamos una ventana emergente más grande para mostrar bien los datos
+    ventana_res = tk.Toplevel(ventana)
+    ventana_res.title(f"Resultados del Análisis: {nombre_archivo}")
+    ventana_res.geometry("500x400")
+    
+    lbl_titulo = tk.Label(ventana_res, text=f"Patrones encontrados en:\n{nombre_archivo}", font=("Arial", 12, "bold"))
+    lbl_titulo.pack(pady=10)
+    
+    # Un cuadro de texto con scroll para ver los resultados cómodamente
+    txt_resultados = tk.Text(ventana_res, wrap="word", font=("Arial", 10), padx=10, pady=10)
+    txt_resultados.pack(expand=True, fill="both", padx=20, pady=(0, 20))
+    
+    total_hallazgos = 0
+    for categoria, lista in resultados.items():
+        txt_resultados.insert(tk.END, f"--- {categoria.upper()} ({len(lista)} encontrados) ---\n")
+        if lista:
+            for item in lista:
+                txt_resultados.insert(tk.END, f" • {item}\n")
+                total_hallazgos += 1
+        else:
+            txt_resultados.insert(tk.END, " Ninguno encontrado.\n")
+        txt_resultados.insert(tk.END, "\n")
+        
+    txt_resultados.config(state="disabled") # Evitar que el usuario edite el texto de resultados
+    
+    if total_hallazgos == 0:
+        messagebox.showinfo("Análisis Terminado", "No se encontraron patrones válidos en el documento.")
+
+# ==========================================
+# CONFIGURACIÓN DE LA VENTANA PRINCIPAL
+# ==========================================
+ventana = tk.Tk()
+ventana.title("Validador de Patrones Léxicos - Proyecto Final")
+ventana.geometry("600x550")
+ventana.configure(padx=20, pady=20)
+
+titulo = tk.Label(ventana, text="Sistema de Validación Léxica", font=("Arial", 16, "bold"))
+titulo.pack(pady=(0, 10))
+
+# --- SECCIÓN 1: VALIDACIÓN EN TIEMPO REAL ---
+frame_formulario = tk.LabelFrame(ventana, text="Validación de Formularios", font=("Arial", 10, "bold"), padx=10, pady=10)
+frame_formulario.pack(fill="x", pady=10)
+
+campos_a_validar = [
+    ("Correo Electrónico:", motor.validar_correo),
+    ("Placa Vehículo:", motor.validar_placa),
+    ("Teléfono (10 dígitos):", motor.validar_telefono),
+    ("Fecha (DD/MM/AAAA):", motor.validar_fecha),
+    ("Sitio Web:", motor.validar_url),
+    ("Contraseña Segura:", motor.validar_contrasena)
+]
+
+for nombre, funcion in campos_a_validar:
+    frame_fila = tk.Frame(frame_formulario)
+    frame_fila.pack(fill="x", pady=5)
+    
+    lbl_nombre = tk.Label(frame_fila, text=nombre, width=20, anchor="w")
+    lbl_nombre.pack(side="left")
+    
+    entrada_texto = tk.Entry(frame_fila, width=25)
+    entrada_texto.pack(side="left", padx=5)
+    
+    lbl_resultado = tk.Label(frame_fila, text="", width=15, font=("Arial", 9, "bold"))
+    lbl_resultado.pack(side="right", padx=5)
+    
+    btn_validar = tk.Button(frame_fila, text="Validar", 
+                            command=lambda n=nombre, f=funcion, e=entrada_texto, r=lbl_resultado: validar_entrada(n, f, e, r))
+    btn_validar.pack(side="right")
+
+# --- SECCIÓN 2: LECTOR DE DOCUMENTOS ---
+frame_archivos = tk.LabelFrame(ventana, text="Análisis de Documentos (Motor de Búsqueda)", font=("Arial", 10, "bold"), padx=10, pady=10)
+frame_archivos.pack(fill="x", pady=10)
+
+lbl_info = tk.Label(frame_archivos, text="Sube un archivo .txt, .pdf o .docx para escanear y extraer\ncorreos, placas, fechas, teléfonos y URLs usando el motor de autómatas.", justify="center")
+lbl_info.pack(pady=(0, 10))
+
+btn_archivo = tk.Button(frame_archivos, text="📁 Seleccionar Archivo y Analizar", command=procesar_archivo, bg="#2196F3", fg="white", font=("Arial", 11, "bold"), pady=5)
+btn_archivo.pack()
+
+ventana.mainloop()
